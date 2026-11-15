@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Koya Clinic: book a visit</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23f6d84a'/%3E%3Cpath d='M13 7h6v6h6v6h-6v6h-6v-6H7v-6h6z' fill='%230a4535'/%3E%3C/svg%3E">
+<style>
+  @font-face { font-family: "Bricolage"; src: url("/static/fonts/bricolage.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
+  :root { --green:#0a4535; --ink:#13241e; --muted:#566660; --paper:#edf1ee; --line:#c9d4cf; --yellow:#f6d84a; --brick:#b3261e; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font:400 17px/1.5 "Bricolage", system-ui, sans-serif; }
+  header { background:var(--green); color:#fff; padding:16px 20px; }
+  header b { font-weight:700; font-size:20px; display:flex; align-items:center; gap:12px; max-width:960px; margin:0 auto; }
+  .mark { width:32px; height:32px; border-radius:8px; background:var(--yellow) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M13 7h6v6h6v6h-6v6h-6v-6H7v-6h6z' fill='%230a4535'/%3E%3C/svg%3E"); }
+  main { max-width:960px; margin:0 auto; padding:28px 20px 60px; }
+  h1 { font-size:clamp(34px,6vw,52px); line-height:1.05; margin:0 0 6px; letter-spacing:-.02em; }
+  h2 { font-size:22px; margin:0 0 12px; }
+  .lede { color:var(--muted); margin:0 0 28px; }
+  .grid { display:grid; grid-template-columns:1fr 340px; gap:28px; align-items:start; }
+  @media (max-width:800px) { .grid { grid-template-columns:1fr; } }
+  .day { margin:0 0 22px; }
+  .day h3 { font-size:16px; margin:0 0 8px; }
+  .slots { display:flex; flex-wrap:wrap; gap:8px; }
+  .slot { font:inherit; background:#fff; color:var(--ink); border:1px solid var(--ink); border-radius:10px; padding:8px 14px; text-align:left; cursor:pointer; min-width:130px; }
+  .slot b { display:block; font-weight:700; }
+  .slot span { font-size:14px; color:var(--muted); }
+  .slot:hover { background:#f7f9f8; }
+  .slot[aria-pressed="true"], .slot[aria-pressed="true"]:hover { background:var(--yellow); }
+  .slot[aria-pressed="true"] span { color:var(--ink); }
+  .panel { background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; position:sticky; top:16px; }
+  label { display:block; font-weight:600; margin:14px 0 4px; }
+  select { width:100%; max-width:380px; font:inherit; padding:11px 12px; border:1.5px solid var(--ink); border-radius:10px; background:#fff; color:var(--ink); }
+  #slots { margin-top:14px; }
+  input { width:100%; font:inherit; padding:11px 12px; border:1.5px solid var(--ink); border-radius:10px; background:#fff; }
+  input[aria-invalid="true"] { border-color:var(--brick); }
+  .err { color:var(--brick); font-size:15px; margin:4px 0 0; }
+  button.go { width:100%; margin-top:18px; font:inherit; font-weight:700; padding:13px; border:0; border-radius:10px; background:var(--green); color:#fff; cursor:pointer; }
+  button.go:disabled { background:#bac8c2; cursor:not-allowed; }
+  :focus-visible { outline:3px solid #2b7bd6; outline-offset:2px; }
+  .chosen { color:var(--muted); margin:0 0 4px; }
+  .msg { margin-top:14px; padding:10px 12px; border-radius:10px; background:#fbe9e7; color:#7c1f16; }
+  .ok h2 { margin-bottom:4px; }
+  .ok dl { margin:16px 0 0; }
+  .ok dt { font-size:14px; color:var(--muted); margin-top:10px; }
+  .ok dd { margin:0; font-weight:600; word-break:break-all; }
+  .again { margin-top:18px; font:inherit; font-weight:600; background:none; border:1.5px solid var(--ink); border-radius:10px; padding:10px 14px; cursor:pointer; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header><b><span class="mark" aria-hidden="true"></span>Koya Clinic</b></header>
+<main>
+  <h1>Book a visit</h1>
+  <p class="lede">Choose a day, pick a time, then enter your name and email.</p>
+  <div class="grid">
+    <section aria-labelledby="slots-h">
+      <h2 id="slots-h">Find a time</h2>
+      <label for="day-filter">Day</label>
+      <select id="day-filter" disabled><option value="">Loading…</option></select>
+      <p id="slots-status" role="status"></p>
+      <div id="slots" class="slots"></div>
+    </section>
+    <aside class="panel" aria-label="Your booking">
+      <div id="form-view">
+        <h2>Your details</h2>
+        <p class="chosen" id="chosen">Choose a time first.</p>
+        <form id="form" novalidate>
+          <label for="name">Full name</label>
+          <input id="name" autocomplete="name">
+          <p class="err" id="name-err" hidden></p>
+          <label for="email">Email address</label>
+          <input id="email" type="email" autocomplete="email" inputmode="email">
+          <p class="err" id="email-err" hidden></p>
+          <button class="go" id="book-btn" type="submit" disabled>Book this time</button>
+        </form>
+        <div class="msg" id="msg" role="alert" hidden></div>
+      </div>
+      <div class="ok" id="ok-view" hidden>
+        <h2>Booking confirmed</h2>
+        <p class="chosen" id="ok-when"></p>
+        <dl>
+          <dt>Name</dt><dd id="ok-name"></dd>
+          <dt>Email</dt><dd id="ok-email"></dd>
+          <dt>Booking reference</dt><dd id="ok-ref"></dd>
+        </dl>
+        <button class="again" id="again" type="button">Book another visit</button>
+      </div>
+    </aside>
+  </div>
+</main>
+<script>
+window.APP_CONFIG = { apiKey: __API_KEY__ };
+(function () {
+  "use strict";
+  var KEY = window.APP_CONFIG.apiKey;
+  var $ = function (id) { return document.getElementById(id); };
+  var state = { day: "", slots: [], selected: null, pendingKey: null, pendingFor: "", busy: false };
+
+  function api(method, path, body, extra) {
+    var h = { "X-API-Key": KEY };
+    if (body !== undefined) h["Content-Type"] = "application/json";
+    for (var k in (extra || {})) h[k] = extra[k];
+    return fetch(path, { method: method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          return { status: res.status, data: data, retryAfter: res.headers.get("Retry-After") };
+        });
+      });
+  }
+  function day(d) { return d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }); }
+  function time(d) { return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false }); }
+  function when(s) { var d = new Date(s.start); return day(d) + " at " + time(d) + " with " + s.provider; }
+  function newKey() { return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2); }
+
+  function dayKey(d) { return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate(); }
+  function openSlots() {
+    var now = Date.now();
+    return state.slots.filter(function (s) { return s.available && new Date(s.start).getTime() > now; });
+  }
+  function render() {
+    var open = openSlots(), sel = $("day-filter"), days = [], seen = {};
+    open.forEach(function (s) {
+      var d = new Date(s.start), k = dayKey(d);
+      if (!seen[k]) { seen[k] = true; days.push({ key: k, label: day(d) }); }
+    });
+    if (state.day && !seen[state.day]) state.day = "";
+    sel.innerHTML = "";
+    var first = document.createElement("option");
+    first.value = ""; first.textContent = days.length ? "Choose a day" : "No days available";
+    sel.appendChild(first);
+    days.forEach(function (d) {
+      var o = document.createElement("option"); o.value = d.key; o.textContent = d.label;
+      if (d.key === state.day) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.disabled = !days.length;
+
+    var box = $("slots"); box.innerHTML = "";
+    if (!state.day) { $("slots-status").textContent = days.length ? "Choose a day to see the available times." : "No times are available right now."; return; }
+    var list = open.filter(function (s) { return dayKey(new Date(s.start)) === state.day; });
+    $("slots-status").textContent = list.length + (list.length === 1 ? " time available" : " times available");
+    list.forEach(function (s) {
+      var d = new Date(s.start), b = document.createElement("button");
+      b.type = "button"; b.className = "slot";
+      b.setAttribute("aria-pressed", state.selected && state.selected.id === s.id ? "true" : "false");
+      b.innerHTML = "<b></b><span></span>";
+      b.firstChild.textContent = time(d); b.lastChild.textContent = s.provider;
+      b.addEventListener("click", function () { choose(s); });
+      box.appendChild(b);
+    });
+  }
+  function choose(s) {
+    state.selected = s; state.pendingKey = null;
+    $("chosen").textContent = when(s);
+    $("book-btn").disabled = false;
+    $("msg").hidden = true;
+    render();
+  }
+  function loadSlots() {
+    return api("GET", "/slots").then(function (r) {
+      if (r.status !== 200) { $("slots-status").textContent = "Could not load times. Refresh the page."; return; }
+      state.slots = r.data.slots || [];
+      if (state.selected && !state.slots.some(function (s) { return s.id === state.selected.id && s.available; })) {
+        state.selected = null; $("chosen").textContent = "Choose a time first."; $("book-btn").disabled = true;
+      }
+      render();
+    }).catch(function () { $("slots-status").textContent = "Could not load times. Refresh the page."; });
+  }
+  function fieldError(id, text) {
+    var e = $(id + "-err"); e.hidden = !text; e.textContent = text || "";
+    $(id).setAttribute("aria-invalid", text ? "true" : "false");
+  }
+  function showMsg(text) { var m = $("msg"); m.textContent = text; m.hidden = false; }
+
+  $("form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (state.busy || !state.selected) return;
+    var name = $("name").value.trim(), email = $("email").value.trim();
+    fieldError("name", name ? "" : "Enter your full name.");
+    fieldError("email", /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? "" : "Enter a valid email address.");
+    if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
+    $("msg").hidden = true;
+    // One Idempotency-Key per distinct request, reused if the same request is retried.
+    var sig = state.selected.id + "|" + name + "|" + email;
+    if (!state.pendingKey || state.pendingFor !== sig) { state.pendingKey = newKey(); state.pendingFor = sig; }
+    state.busy = true; $("book-btn").disabled = true; $("book-btn").textContent = "Booking…";
+    var chosen = state.selected;
+    api("POST", "/bookings", { slot_id: chosen.id, name: name, email: email }, { "Idempotency-Key": state.pendingKey })
+      .then(function (r) {
+        if (r.status === 201 || r.status === 200) {
+          $("ok-when").textContent = when(chosen);
+          $("ok-name").textContent = r.data.name; $("ok-email").textContent = r.data.email; $("ok-ref").textContent = r.data.id;
+          $("form-view").hidden = true; $("ok-view").hidden = false;
+          state.pendingKey = null; state.selected = null;
+          return loadSlots();
+        }
+        if (r.status === 409) { showMsg("Someone just booked that time. Choose another."); state.selected = null; state.pendingKey = null; $("chosen").textContent = "Choose a time first."; return loadSlots(); }
+        if (r.status === 429) { showMsg("Too many attempts. Try again in " + (r.retryAfter || "a few") + " seconds."); }
+        else { showMsg(r.data.error ? "Could not book: " + r.data.error + "." : "Something went wrong. Try again."); }
+        $("book-btn").disabled = !state.selected;
+      })
+      .catch(function () { showMsg("Could not reach the server. Try again."); $("book-btn").disabled = !state.selected; })
+      .then(function () { state.busy = false; $("book-btn").textContent = "Book this time"; });
+  });
+  $("again").addEventListener("click", function () {
+    $("name").value = ""; $("email").value = "";
+    fieldError("name", ""); fieldError("email", "");
+    $("ok-view").hidden = true; $("form-view").hidden = false;
+    $("chosen").textContent = "Choose a time first."; $("book-btn").disabled = true;
+  });
+  $("day-filter").addEventListener("change", function () { state.day = this.value; render(); });
+  loadSlots();
+})();
+</script>
+</body>
+</html>
