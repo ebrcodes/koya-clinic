@@ -30,8 +30,20 @@
   .slot[aria-pressed="true"] span { color:var(--ink); }
   .panel { background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; position:sticky; top:16px; }
   label { display:block; font-weight:600; margin:14px 0 4px; }
-  select { width:100%; max-width:380px; font:inherit; padding:11px 12px; border:1.5px solid var(--ink); border-radius:10px; background:#fff; color:var(--ink); }
-  #slots { margin-top:14px; }
+  .cal { max-width:392px; background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px; margin-top:4px; }
+  .cal-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .cal-head b { font-weight:700; font-size:18px; }
+  .cal-nav { font:inherit; width:38px; height:38px; border:1.5px solid var(--ink); background:#fff; color:var(--ink); border-radius:10px; cursor:pointer; font-size:20px; line-height:1; }
+  .cal-nav:disabled { opacity:.3; cursor:not-allowed; }
+  .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+  .cal-dow { text-align:center; font-size:13px; color:var(--muted); padding:4px 0; }
+  .cd { font:inherit; height:42px; border:0; border-radius:10px; background:transparent; color:#a3b0aa; cursor:not-allowed; position:relative; padding:0; }
+  .cd.has { color:var(--ink); font-weight:700; cursor:pointer; background:#eff4f1; }
+  .cd.has:hover { background:#dfe9e4; }
+  .cd.has::after { content:""; position:absolute; bottom:6px; left:50%; width:5px; height:5px; margin-left:-2.5px; border-radius:50%; background:var(--green); }
+  .cd.has[aria-pressed="true"], .cd.has[aria-pressed="true"]:hover { background:var(--yellow); }
+  #slots-status { margin:16px 0 0; font-weight:600; }
+  #slots { margin-top:12px; }
   input { width:100%; font:inherit; padding:11px 12px; border:1.5px solid var(--ink); border-radius:10px; background:#fff; }
   input[aria-invalid="true"] { border-color:var(--brick); }
   .err { color:var(--brick); font-size:15px; margin:4px 0 0; }
@@ -52,13 +64,12 @@
 <header><b><span class="mark" aria-hidden="true"></span>Koya Clinic</b></header>
 <main>
   <h1>Book a visit</h1>
-  <p class="lede">Choose a day, pick a time, then enter your name and email.</p>
+  <p class="lede">Pick a day, choose a time, then enter your name and email.</p>
   <div class="grid">
     <section aria-labelledby="slots-h">
       <h2 id="slots-h">Find a time</h2>
-      <label for="day-filter">Day</label>
-      <select id="day-filter" disabled><option value="">Loading…</option></select>
-      <p id="slots-status" role="status"></p>
+      <div id="cal" role="group" aria-label="Choose a day"></div>
+      <p id="slots-status" role="status">Loading times…</p>
       <div id="slots" class="slots"></div>
     </section>
     <aside class="panel" aria-label="Your booking">
@@ -95,7 +106,7 @@ window.APP_CONFIG = { apiKey: __API_KEY__ };
   "use strict";
   var KEY = window.APP_CONFIG.apiKey;
   var $ = function (id) { return document.getElementById(id); };
-  var state = { day: "", slots: [], selected: null, pendingKey: null, pendingFor: "", busy: false };
+  var state = { day: "", view: null, slots: [], selected: null, pendingKey: null, pendingFor: "", busy: false };
 
   function api(method, path, body, extra) {
     var h = { "X-API-Key": KEY };
@@ -118,28 +129,58 @@ window.APP_CONFIG = { apiKey: __API_KEY__ };
     var now = Date.now();
     return state.slots.filter(function (s) { return s.available && new Date(s.start).getTime() > now; });
   }
+  var WEEK = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+  function monthIndex(d) { return d.getFullYear() * 12 + d.getMonth(); }
   function render() {
-    var open = openSlots(), sel = $("day-filter"), days = [], seen = {};
+    var open = openSlots(), counts = {}, first = null, last = null;
     open.forEach(function (s) {
       var d = new Date(s.start), k = dayKey(d);
-      if (!seen[k]) { seen[k] = true; days.push({ key: k, label: day(d) }); }
+      counts[k] = (counts[k] || 0) + 1;
+      if (!first || d < first) first = d;
+      if (!last || d > last) last = d;
     });
-    if (state.day && !seen[state.day]) state.day = "";
-    sel.innerHTML = "";
-    var first = document.createElement("option");
-    first.value = ""; first.textContent = days.length ? "Choose a day" : "No days available";
-    sel.appendChild(first);
-    days.forEach(function (d) {
-      var o = document.createElement("option"); o.value = d.key; o.textContent = d.label;
-      if (d.key === state.day) o.selected = true;
-      sel.appendChild(o);
-    });
-    sel.disabled = !days.length;
+    var cal = $("cal"), box = $("slots");
+    cal.innerHTML = ""; box.innerHTML = "";
+    if (!first) { cal.className = ""; $("slots-status").textContent = "No times are available right now."; return; }
+    if (state.day && !counts[state.day]) state.day = "";
+    if (!state.day) state.day = dayKey(first);          // earliest day with times is open first
+    if (!state.view) { state.view = { y: first.getFullYear(), m: first.getMonth() }; }
+    var v = state.view, vm = v.y * 12 + v.m;
 
-    var box = $("slots"); box.innerHTML = "";
-    if (!state.day) { $("slots-status").textContent = days.length ? "Choose a day to see the available times." : "No times are available right now."; return; }
+    cal.className = "cal";
+    var head = document.createElement("div"); head.className = "cal-head";
+    var prev = document.createElement("button"); prev.type = "button"; prev.className = "cal-nav"; prev.textContent = "‹"; prev.setAttribute("aria-label", "Previous month");
+    var next = document.createElement("button"); next.type = "button"; next.className = "cal-nav"; next.textContent = "›"; next.setAttribute("aria-label", "Next month");
+    var title = document.createElement("b"); title.setAttribute("aria-live", "polite");
+    title.textContent = new Date(v.y, v.m, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    prev.disabled = vm <= monthIndex(first); next.disabled = vm >= monthIndex(last);
+    prev.addEventListener("click", function () { state.view = { y: v.m === 0 ? v.y - 1 : v.y, m: v.m === 0 ? 11 : v.m - 1 }; render(); });
+    next.addEventListener("click", function () { state.view = { y: v.m === 11 ? v.y + 1 : v.y, m: v.m === 11 ? 0 : v.m + 1 }; render(); });
+    head.appendChild(prev); head.appendChild(title); head.appendChild(next); cal.appendChild(head);
+
+    var grid = document.createElement("div"); grid.className = "cal-grid";
+    WEEK.forEach(function (w) { var c = document.createElement("div"); c.className = "cal-dow"; c.textContent = w; grid.appendChild(c); });
+    var lead = (new Date(v.y, v.m, 1).getDay() + 6) % 7;   // weeks start on Monday
+    for (var i = 0; i < lead; i++) grid.appendChild(document.createElement("div"));
+    var total = new Date(v.y, v.m + 1, 0).getDate();
+    for (var n = 1; n <= total; n++) (function (n) {
+      var date = new Date(v.y, v.m, n), k = dayKey(date), b = document.createElement("button");
+      b.type = "button"; b.className = "cd"; b.textContent = n;
+      if (counts[k]) {
+        b.className = "cd has";
+        b.setAttribute("aria-label", day(date) + ", " + counts[k] + (counts[k] === 1 ? " time" : " times") + " available");
+        b.setAttribute("aria-pressed", k === state.day ? "true" : "false");
+        b.addEventListener("click", function () { pickDay(k); });
+      } else {
+        b.disabled = true; b.setAttribute("aria-label", day(date) + ", no times available");
+      }
+      grid.appendChild(b);
+    })(n);
+    cal.appendChild(grid);
+
     var list = open.filter(function (s) { return dayKey(new Date(s.start)) === state.day; });
-    $("slots-status").textContent = list.length + (list.length === 1 ? " time available" : " times available");
+    var parts = state.day.split("-"), chosenDate = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+    $("slots-status").textContent = day(chosenDate) + ": " + list.length + (list.length === 1 ? " time available" : " times available");
     list.forEach(function (s) {
       var d = new Date(s.start), b = document.createElement("button");
       b.type = "button"; b.className = "slot";
@@ -150,10 +191,17 @@ window.APP_CONFIG = { apiKey: __API_KEY__ };
       box.appendChild(b);
     });
   }
+  function pickDay(k) {
+    state.day = k; state.selected = null; state.pendingKey = null;
+    $("chosen").textContent = "Choose a time first."; $("book-btn").textContent = "Book this time"; $("book-btn").disabled = true;
+    $("msg").hidden = true; render();
+  }
   function choose(s) {
     state.selected = s; state.pendingKey = null;
     $("chosen").textContent = when(s);
+    $("book-btn").textContent = "Book " + time(new Date(s.start)) + " with " + s.provider;
     $("book-btn").disabled = false;
+    if (window.matchMedia("(max-width: 800px)").matches) $("form-view").scrollIntoView({ behavior: "smooth", block: "start" });
     $("msg").hidden = true;
     render();
   }
@@ -162,7 +210,7 @@ window.APP_CONFIG = { apiKey: __API_KEY__ };
       if (r.status !== 200) { $("slots-status").textContent = "Could not load times. Refresh the page."; return; }
       state.slots = r.data.slots || [];
       if (state.selected && !state.slots.some(function (s) { return s.id === state.selected.id && s.available; })) {
-        state.selected = null; $("chosen").textContent = "Choose a time first."; $("book-btn").disabled = true;
+        state.selected = null; $("chosen").textContent = "Choose a time first."; $("book-btn").textContent = "Book this time"; $("book-btn").disabled = true;
       }
       render();
     }).catch(function () { $("slots-status").textContent = "Could not load times. Refresh the page."; });
@@ -201,15 +249,14 @@ window.APP_CONFIG = { apiKey: __API_KEY__ };
         $("book-btn").disabled = !state.selected;
       })
       .catch(function () { showMsg("Could not reach the server. Try again."); $("book-btn").disabled = !state.selected; })
-      .then(function () { state.busy = false; $("book-btn").textContent = "Book this time"; });
+      .then(function () { state.busy = false; $("book-btn").textContent = state.selected ? "Book " + time(new Date(state.selected.start)) + " with " + state.selected.provider : "Book this time"; });
   });
   $("again").addEventListener("click", function () {
     $("name").value = ""; $("email").value = "";
     fieldError("name", ""); fieldError("email", "");
     $("ok-view").hidden = true; $("form-view").hidden = false;
-    $("chosen").textContent = "Choose a time first."; $("book-btn").disabled = true;
+    $("chosen").textContent = "Choose a time first."; $("book-btn").textContent = "Book this time"; $("book-btn").disabled = true;
   });
-  $("day-filter").addEventListener("change", function () { state.day = this.value; render(); });
   loadSlots();
 })();
 </script>

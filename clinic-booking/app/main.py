@@ -136,6 +136,12 @@ async def read_object(request):
 
 def init_db():
     with pool.connection() as conn:
+        # Fast path: the schema is created in one transaction, so if the last
+        # table exists they all do. Many cold starts at once then skip the lock
+        # and the DDL entirely instead of queueing behind each other.
+        done = conn.execute("SELECT to_regclass('public.attempts') IS NOT NULL AS ok").fetchone()
+        if done["ok"]:
+            return
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(727274)")
             cur.execute(SCHEMA)
