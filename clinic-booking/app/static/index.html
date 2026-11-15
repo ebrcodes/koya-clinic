@@ -30,11 +30,26 @@
   .slot[aria-pressed="true"] span { color:var(--ink); }
   .panel { background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; position:sticky; top:16px; }
   label { display:block; font-weight:600; margin:14px 0 4px; }
-  .cal { max-width:392px; background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px; margin-top:4px; }
-  .cal-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-  .cal-head b { font-weight:700; font-size:18px; }
-  .cal-nav { font:inherit; width:38px; height:38px; border:1.5px solid var(--ink); background:#fff; color:var(--ink); border-radius:10px; cursor:pointer; font-size:20px; line-height:1; }
+  .field-label { margin-top:4px; }
+  .field { position:relative; max-width:392px; }
+  .daybtn { width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; font:inherit; text-align:left; padding:12px 14px; border:1.5px solid var(--ink); border-radius:10px; background:#fff; color:var(--ink); cursor:pointer; }
+  .daybtn.empty #day-text { color:var(--muted); }
+  .daybtn svg { flex:none; }
+  .cal { position:absolute; z-index:20; left:0; right:0; top:calc(100% + 6px); background:#fff; border:1.5px solid var(--ink); border-radius:14px; padding:14px; box-shadow:0 14px 32px rgba(19,36,30,.2); }
+  .cal-head { display:flex; align-items:center; gap:6px; margin-bottom:10px; }
+  .cal-nav { flex:none; font:inherit; width:38px; height:38px; border:1.5px solid var(--ink); background:#fff; color:var(--ink); border-radius:10px; cursor:pointer; font-size:20px; line-height:1; }
   .cal-nav:disabled { opacity:.3; cursor:not-allowed; }
+  .cal-sel { font:inherit; font-weight:600; flex:1; min-width:0; height:38px; padding:0 24px 0 8px; border:1.5px solid var(--ink); border-radius:10px; color:var(--ink); cursor:pointer;
+    -webkit-appearance:none; appearance:none;
+    background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5l4.5 4.5 4.5-4.5' fill='none' stroke='%2313241e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 8px center; }
+  .cal-sel.year { flex:0 0 84px; }
+  @media (max-width:420px) {
+    .cal { padding:10px; }
+    .cal-nav { width:34px; height:34px; }
+    .cal-sel { font-size:15px; height:34px; padding:0 22px 0 6px; background-position:right 6px center; }
+    .cal-sel.year { flex:0 0 76px; }
+  }
+  .cal-note { text-align:center; color:var(--muted); font-size:15px; margin:10px 0 0; }
   .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
   .cal-dow { text-align:center; font-size:13px; color:var(--muted); padding:4px 0; }
   .cd { font:inherit; height:42px; border:0; border-radius:10px; background:transparent; color:#a3b0aa; cursor:not-allowed; position:relative; padding:0; }
@@ -68,7 +83,14 @@
   <div class="grid">
     <section aria-labelledby="slots-h">
       <h2 id="slots-h">Find a time</h2>
-      <div id="cal" role="group" aria-label="Choose a day"></div>
+      <label for="day-btn" class="field-label">Day</label>
+      <div class="field">
+        <button type="button" class="daybtn empty" id="day-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="cal">
+          <span id="day-text">Select a day</span>
+          <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="4" width="15" height="13" rx="2.5" fill="none" stroke="#13241e" stroke-width="1.6"/><path d="M2.5 8h15M6.5 2.5v3M13.5 2.5v3" fill="none" stroke="#13241e" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+        <div id="cal" class="cal" role="dialog" aria-label="Choose a day" hidden></div>
+      </div>
       <p id="slots-status" role="status">Loading times…</p>
       <div id="slots" class="slots"></div>
     </section>
@@ -106,7 +128,7 @@ window.APP_CONFIG = { apiKey: __API_KEY__ };
   "use strict";
   var KEY = window.APP_CONFIG.apiKey;
   var $ = function (id) { return document.getElementById(id); };
-  var state = { day: "", view: null, slots: [], selected: null, pendingKey: null, pendingFor: "", busy: false };
+  var state = { day: "", view: null, open: false, focusId: "", slots: [], selected: null, pendingKey: null, pendingFor: "", busy: false };
 
   function api(method, path, body, extra) {
     var h = { "X-API-Key": KEY };
@@ -130,71 +152,109 @@ window.APP_CONFIG = { apiKey: __API_KEY__ };
     return state.slots.filter(function (s) { return s.available && new Date(s.start).getTime() > now; });
   }
   var WEEK = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
-  function monthIndex(d) { return d.getFullYear() * 12 + d.getMonth(); }
+  var MONTHS_AHEAD = 36;                     // you can look up to three years ahead
+  function monthIdx(y, m) { return y * 12 + m; }
+  function thisMonthIdx() { var n = new Date(); return monthIdx(n.getFullYear(), n.getMonth()); }
+  function dayCounts() {
+    var c = {};
+    openSlots().forEach(function (s) { var k = dayKey(new Date(s.start)); c[k] = (c[k] || 0) + 1; });
+    return c;
+  }
+  function keyToDate(k) { var p = k.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); }
+
   function render() {
-    var open = openSlots(), counts = {}, first = null, last = null;
-    open.forEach(function (s) {
-      var d = new Date(s.start), k = dayKey(d);
-      counts[k] = (counts[k] || 0) + 1;
-      if (!first || d < first) first = d;
-      if (!last || d > last) last = d;
-    });
-    var cal = $("cal"), box = $("slots");
-    cal.innerHTML = ""; box.innerHTML = "";
-    if (!first) { cal.className = ""; $("slots-status").textContent = "No times are available right now."; return; }
+    var counts = dayCounts();
     if (state.day && !counts[state.day]) state.day = "";
-    if (!state.day) state.day = dayKey(first);          // earliest day with times is open first
-    if (!state.view) { state.view = { y: first.getFullYear(), m: first.getMonth() }; }
-    var v = state.view, vm = v.y * 12 + v.m;
+    var btn = $("day-btn");
+    $("day-text").textContent = state.day ? day(keyToDate(state.day)) + " " + keyToDate(state.day).getFullYear() : "Select a day";
+    btn.className = "daybtn" + (state.day ? "" : " empty");
+    var box = $("slots"); box.innerHTML = "";
+    if (!Object.keys(counts).length) { $("slots-status").textContent = "No times are available right now."; }
+    else if (!state.day) { $("slots-status").textContent = "Choose a day to see the available times."; }
+    else {
+      var list = openSlots().filter(function (s) { return dayKey(new Date(s.start)) === state.day; });
+      $("slots-status").textContent = day(keyToDate(state.day)) + ": " + list.length + (list.length === 1 ? " time available" : " times available");
+      list.forEach(function (s) {
+        var d = new Date(s.start), b = document.createElement("button");
+        b.type = "button"; b.className = "slot";
+        b.setAttribute("aria-pressed", state.selected && state.selected.id === s.id ? "true" : "false");
+        b.innerHTML = "<b></b><span></span>";
+        b.firstChild.textContent = time(d); b.lastChild.textContent = s.provider;
+        b.addEventListener("click", function () { choose(s); });
+        box.appendChild(b);
+      });
+    }
+    if (state.open) renderCal();
+  }
 
-    cal.className = "cal";
-    var head = document.createElement("div"); head.className = "cal-head";
-    var prev = document.createElement("button"); prev.type = "button"; prev.className = "cal-nav"; prev.textContent = "‹"; prev.setAttribute("aria-label", "Previous month");
-    var next = document.createElement("button"); next.type = "button"; next.className = "cal-nav"; next.textContent = "›"; next.setAttribute("aria-label", "Next month");
-    var title = document.createElement("b"); title.setAttribute("aria-live", "polite");
-    title.textContent = new Date(v.y, v.m, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
-    prev.disabled = vm <= monthIndex(first); next.disabled = vm >= monthIndex(last);
-    prev.addEventListener("click", function () { state.view = { y: v.m === 0 ? v.y - 1 : v.y, m: v.m === 0 ? 11 : v.m - 1 }; render(); });
-    next.addEventListener("click", function () { state.view = { y: v.m === 11 ? v.y + 1 : v.y, m: v.m === 11 ? 0 : v.m + 1 }; render(); });
-    head.appendChild(prev); head.appendChild(title); head.appendChild(next); cal.appendChild(head);
+  function clampView(y, m) {
+    var lo = thisMonthIdx(), idx = Math.min(Math.max(monthIdx(y, m), lo), lo + MONTHS_AHEAD);
+    return { y: Math.floor(idx / 12), m: idx % 12 };
+  }
+  function renderCal() {
+    var cal = $("cal"), counts = dayCounts(), v = state.view, vi = monthIdx(v.y, v.m), lo = thisMonthIdx(), hi = lo + MONTHS_AHEAD;
+    cal.innerHTML = "";
+    function mk(tag, cls, id) { var e = document.createElement(tag); if (cls) e.className = cls; if (id) e.id = id; return e; }
+    function go(y, m, focusId) { state.view = clampView(y, m); state.focusId = focusId; renderCal(); }
 
-    var grid = document.createElement("div"); grid.className = "cal-grid";
-    WEEK.forEach(function (w) { var c = document.createElement("div"); c.className = "cal-dow"; c.textContent = w; grid.appendChild(c); });
+    var head = mk("div", "cal-head");
+    var prev = mk("button", "cal-nav", "cal-prev"); prev.type = "button"; prev.textContent = "‹"; prev.setAttribute("aria-label", "Previous month"); prev.disabled = vi <= lo;
+    var next = mk("button", "cal-nav", "cal-next"); next.type = "button"; next.textContent = "›"; next.setAttribute("aria-label", "Next month"); next.disabled = vi >= hi;
+    prev.addEventListener("click", function () { go(v.y, v.m - 1, "cal-prev"); });
+    next.addEventListener("click", function () { go(v.y, v.m + 1, "cal-next"); });
+
+    var ms = mk("select", "cal-sel", "cal-month"); ms.setAttribute("aria-label", "Month");
+    for (var m = 0; m < 12; m++) {
+      var o = mk("option"); o.value = m; o.textContent = new Date(2000, m, 1).toLocaleDateString(undefined, { month: "long" });
+      var idx = monthIdx(v.y, m); o.disabled = idx < lo || idx > hi; if (m === v.m) o.selected = true; ms.appendChild(o);
+    }
+    var ys = mk("select", "cal-sel year", "cal-year"); ys.setAttribute("aria-label", "Year");
+    for (var y = Math.floor(lo / 12); y <= Math.floor(hi / 12); y++) {
+      var yo = mk("option"); yo.value = y; yo.textContent = y; if (y === v.y) yo.selected = true; ys.appendChild(yo);
+    }
+    ms.addEventListener("change", function () { go(v.y, +ms.value, "cal-month"); });
+    ys.addEventListener("change", function () { go(+ys.value, v.m, "cal-year"); });
+    head.appendChild(prev); head.appendChild(ms); head.appendChild(ys); head.appendChild(next); cal.appendChild(head);
+
+    var grid = mk("div", "cal-grid");
+    WEEK.forEach(function (w) { var c = mk("div", "cal-dow"); c.textContent = w; grid.appendChild(c); });
     var lead = (new Date(v.y, v.m, 1).getDay() + 6) % 7;   // weeks start on Monday
-    for (var i = 0; i < lead; i++) grid.appendChild(document.createElement("div"));
-    var total = new Date(v.y, v.m + 1, 0).getDate();
+    for (var i = 0; i < lead; i++) grid.appendChild(mk("div"));
+    var total = new Date(v.y, v.m + 1, 0).getDate(), any = false;
     for (var n = 1; n <= total; n++) (function (n) {
-      var date = new Date(v.y, v.m, n), k = dayKey(date), b = document.createElement("button");
-      b.type = "button"; b.className = "cd"; b.textContent = n;
+      var date = new Date(v.y, v.m, n), k = dayKey(date), b = mk("button", "cd"); b.type = "button"; b.textContent = n;
       if (counts[k]) {
-        b.className = "cd has";
+        any = true; b.className = "cd has";
         b.setAttribute("aria-label", day(date) + ", " + counts[k] + (counts[k] === 1 ? " time" : " times") + " available");
         b.setAttribute("aria-pressed", k === state.day ? "true" : "false");
         b.addEventListener("click", function () { pickDay(k); });
-      } else {
-        b.disabled = true; b.setAttribute("aria-label", day(date) + ", no times available");
-      }
+      } else { b.disabled = true; b.setAttribute("aria-label", day(date) + ", no times available"); }
       grid.appendChild(b);
     })(n);
     cal.appendChild(grid);
-
-    var list = open.filter(function (s) { return dayKey(new Date(s.start)) === state.day; });
-    var parts = state.day.split("-"), chosenDate = new Date(+parts[0], +parts[1] - 1, +parts[2]);
-    $("slots-status").textContent = day(chosenDate) + ": " + list.length + (list.length === 1 ? " time available" : " times available");
-    list.forEach(function (s) {
-      var d = new Date(s.start), b = document.createElement("button");
-      b.type = "button"; b.className = "slot";
-      b.setAttribute("aria-pressed", state.selected && state.selected.id === s.id ? "true" : "false");
-      b.innerHTML = "<b></b><span></span>";
-      b.firstChild.textContent = time(d); b.lastChild.textContent = s.provider;
-      b.addEventListener("click", function () { choose(s); });
-      box.appendChild(b);
-    });
+    if (!any) {
+      var note = mk("p", "cal-note"); note.textContent = "No times available in " + new Date(v.y, v.m, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" }) + ".";
+      cal.appendChild(note);
+    }
+    if (state.focusId) { var f = $(state.focusId); if (f && !f.disabled) f.focus(); else $("cal-month").focus(); state.focusId = ""; }
+  }
+  function openCal() {
+    if (!state.view) {
+      var counts = dayCounts(), keys = Object.keys(counts).map(keyToDate).sort(function (a, b) { return a - b; });
+      var base = state.day ? keyToDate(state.day) : (keys[0] || new Date());
+      state.view = clampView(base.getFullYear(), base.getMonth());
+    }
+    state.open = true; $("cal").hidden = false; $("day-btn").setAttribute("aria-expanded", "true"); renderCal();
+  }
+  function closeCal(focusBtn) {
+    state.open = false; $("cal").hidden = true; $("day-btn").setAttribute("aria-expanded", "false");
+    if (focusBtn) $("day-btn").focus();
   }
   function pickDay(k) {
     state.day = k; state.selected = null; state.pendingKey = null;
+    var d = keyToDate(k); state.view = { y: d.getFullYear(), m: d.getMonth() };
     $("chosen").textContent = "Choose a time first."; $("book-btn").textContent = "Book this time"; $("book-btn").disabled = true;
-    $("msg").hidden = true; render();
+    $("msg").hidden = true; closeCal(true); render();
   }
   function choose(s) {
     state.selected = s; state.pendingKey = null;
@@ -257,6 +317,11 @@ window.APP_CONFIG = { apiKey: __API_KEY__ };
     $("ok-view").hidden = true; $("form-view").hidden = false;
     $("chosen").textContent = "Choose a time first."; $("book-btn").textContent = "Book this time"; $("book-btn").disabled = true;
   });
+  $("day-btn").addEventListener("click", function () { if (state.open) closeCal(false); else openCal(); });
+  document.addEventListener("click", function (e) {
+    if (state.open && !$("cal").contains(e.target) && !$("day-btn").contains(e.target)) closeCal(false);
+  });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && state.open) closeCal(true); });
   loadSlots();
 })();
 </script>
